@@ -1,0 +1,19 @@
+1. adaptive(Singular).edp
+Problem:choose f and g such that the exact solution is u(x, y) = (2.1-x-y)^{-1/3}, which has a singularity close to the right corner (1,1) by taking an error tolerance of 10^{-4} and \Delta t=10^{-6}. 
+In this example, we consider \kappa_1=\epsilon/2, \kappa_2=\frac{\sqrt{2}\kappa_1(\Delta t)^2}{16\pi} and \kappa_3=1. 
+2.ainsworth_exampl2.edp
+Problem:Solution with strong boundary layers: Choose \nu=10^-3,k=1 and a=[1,1,1] and the exact solution is given by u=2y(1-y)(1-z)(x-(e^-(1-x)/nu - e^(-1/nu))/(1-e^(-1/nu))
+3. sangalli_test1.edp
+Problem: we set ε = 10−3, β = [1 0] and ρ = 0,
+f(x, y)=2x cos(πy); the exact solution exhibits an exponential layer at the outflow
+x = 1 and characteristic layers at y = 0 and y = 1. 
+4.sangalli_test2.edp
+Problem: For the second test we have
+ε = 10−6, advection and reaction coefficients as before, f(x, y) = π cos(πx) sin(πy),
+and the solution is now smooth up to the boundary
+5. test_2_cai.edp
+Problem: Let f = 0 and the exact solution u(x, y) = e−(x+1)/√\epsilon + e−(y+1)/
+√\epsilon with \epsilon = 10−4, which displays boundary layers along x = −1 and y = −1.
+6. test_3_cai.edp
+The exact solution is chosen as
+u(x, y) = tanh(\epsilon)−1/2(x2 + y2 −1/4) with \epsilon = 10−4
