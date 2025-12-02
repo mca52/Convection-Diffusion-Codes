@@ -1,0 +1,297 @@
+load "iovtk"
+load "Element_Mixte"
+macro  MeshSizecomputation(Th, Vh, h)
+{	
+	real[int] count(Th.nv);
+	varf vmeshsizen(u, v) = intalledges(Th, qfnbpE=1)(v);
+	varf vedgecount(u, v) = intalledges(Th, qfnbpE=1)(v/lenEdge);
+	count = vedgecount(0, Vh);
+	h[] = 0.;
+	h[] = vmeshsizen(0, Vh);
+	cout << "count min = " << count.min << ", max = " << count.max << endl;
+	h[] = h[]./count;
+        cout << "bound meshsize = " << h[].min << " " << h[].max << endl;
+} // end of macro MeshSizecomputation
+
+
+macro  ReMeshIndicator(Th, Ph, Vh, vindicator, coef,toterr)
+{
+	Vh h = 0;
+	
+	MeshSizecomputation(Th, Vh, h);
+	Ph etak;
+	etak[] = vindicator(0, Ph);
+	cout << "global  Eta: " << sqrt(etak[].sum) << "  ......... " <<  Th.nv<< endl;
+	etak[] = sqrt(etak[]);
+	real etastar = coef*(etak[].sum/etak[].n);
+	cout << "etastar = " << etastar << ", sum = " << etak[].sum << " " << endl;
+        cout << "Efficiency="  << sqrt(etak[].sum)/toterr << endl;
+
+	 Vh fn, sig;
+	varf veta(unused, v) = int2d(Th)(etak*v);
+	varf vun(unused, v) = int2d(Th)(1*v);
+	fn[] = veta(0, Vh);
+	sig[] = vun(0, Vh);
+	fn[] = fn[] ./ sig[];
+	fn =  max(min(fn/etastar, 3.), 0.3333) ;
+	h = h / fn ;
+	Th = adaptmesh(Th, IsMetric=1, h, splitpbedge=1, nbvx=10000);
+}
+
+// Mesh
+
+mesh Th=square(100,100);
+fespace Vh(Th,P1);
+Vh uold,vold;
+
+real ep=1e-6;
+func g=(2.1-x-y)^(-2./3.);
+real dxg=(2./3.)*(2.1-x-y)^(-5./3.);
+real dxxg=(10./9.)*(2.1-x-y)^(-8./3.);
+real dyg=(2./3.)*(2.1-x-y)^(-5./3.);
+real dyyg=(10./9.)*(2.1-x-y)^(-8./3.);
+real b1,b2,c,kappa1,kappa2,kappa3;
+real dt=1e-5;
+b1=1;
+b2=0;
+c=0; 
+kappa1=ep/2.;
+//kappa2=(dt)^2*ep*sqrt(2)/(4*pi);
+kappa2=(sqrt(2)*kappa1*(dt)^2)/(8*pi);
+kappa3=1.0;
+
+func f=-ep*((20./9.)*(2.1-x-y)^(-8./3.))+(2./3.)*(2.1-x-y)^(-5./3.)+c*g;
+// Computing the first approximation - Poisson problem
+solve Poisson(uold,vold)=
+      int2d(Th)((0.01*dx(uold)*dx(vold)+0.01*dy(uold)*dy(vold)))
+      +int2d(Th)((b1*dx(uold)+b2*dy(uold))*vold)
+      -int2d(Th)(f*vold)
+      +on(1,2,3,4,uold=g);
+
+// Fespace
+real hinit = 0.2;
+fespace Ph(Th, P1);
+fespace Vh1(Th,P2);
+Vh1 v,u,error,error2;
+Vh1 un;
+Vh1 h=hinit;
+un=uold;
+fespace Rh(Th,RT1);
+Rh [sigma1,sigma2];
+Rh [sigman1,sigman2];
+Rh [tau1,tau2];
+macro sigma[sigma1,sigma2]//
+macro sigman[sigman1,sigman2]//
+macro grad(u) [dx(u),dy(u)]//
+macro tau[tau1,tau2]//
+macro div(sigma)[dx(sigma1)+dy(sigma2)]//
+macro divg(tau)[dx(tau1)+dy(tau2)]//
+mesh Th1 = adaptmesh(Th, h, IsMetric=1, splitpbedge=1, nbvx=10000);
+
+// Functions
+solve ad([sigma1,sigma2,u],[tau1,tau2,v])
+               =int2d(Th)(dt*(sigma'*tau)/ep)
+               -int2d(Th)(dt*u*(dx(tau1)+dy(tau2)))
+               +int2d(Th)(dt*v*(dx(sigma1)+dy(sigma2)))
+               +int2d(Th)((1+dt*c)*u*v)
+               -int2d(Th)(convect([b1,b2],-dt,un)*v)
+               +int2d(Th)(kappa1*dt*(sigma'*grad(v)/ep-(sigma'*tau)/ep^2+grad(u)'*grad(v)-tau'*grad(u)/ep))
+               +int2d(Th)(kappa2*(dt*div(sigma)'*divg(tau)+dx(tau1)*(u+u*dt*c)+dy(tau2)*(u+u*dt*c)))
+               -int2d(Th)(kappa2*(dx(tau1)*convect([b1,b2],-dt,un)+dy(tau2)*convect([b1,b2],-dt,un)))
+               +int1d(Th)(kappa3*u*v) // when c=0
+               -int2d(Th)(dt*f*v)
+               +int1d(Th)(dt*g*(N.x*tau1+N.y*tau2))
+               -int2d(Th)(kappa2*f*dt*(dx(tau1)+dy(tau2)))
+               -int1d(Th)(kappa3*g*v); // when c=0
+int n=20;
+real[int] L2a(n),H1a(n),H11a(n),erra(n);
+sigman=sigma;//initializing sigma^n-1 as sigma^1
+
+un=u;
+for(n=1;n<20;n=n+1){
+       
+       ad;
+       error=u-un;// So, here u^n=u^2 from the second iteration and u^n-1=u^1
+       L2a[n]=sqrt(int2d(Th)(error^2));
+       H1a[n]=sqrt(int2d(Th)((error)^2)+int2d(Th)((dx(u)-dx(un))^2)+int2d(Th)((dy(u)-dy(un))^2));
+       H11a[n]=sqrt(int2d(Th)((sigman1-sigma1)^2)+int2d(Th)((sigman2-sigma2)^2)+int2d(Th)((dx(sigman1)-dx(sigma1)+dy(sigman2)-dy(sigma2))^2));
+       erra[n]=sqrt(H1a[n]^2+H11a[n]^2);
+       cout<<n<<"tot err="<<erra[n]<<endl;
+       if (erra[n]<0.1)
+        {
+       break;
+       }
+       un=u; //Swapping values of u^n-1 with u^n
+       sigman=sigma; //Swapping values of u^n-1 with u^n
+       }
+
+
+
+
+
+
+varf indicator2 (unused, chiK)
+= int2d(Th)((dt^3*ep/16)*chiK*(square(hTriangle)+square(kappa2))*square(dt*f -dt*(dx(sigma1) + dy(sigma2))-(1+dt*c)*u+convect([b1,b2],-dt,un)))
+ +int2d(Th)((dt^3*ep/16)*chiK*dt^2*(kappa1^2+(1+square(hTriangle))*square(1-kappa1/ep))*(square(dx(u)+sigma1/ep)+square(dy(u)+sigma2/ep)))
+ +int1d(Th)((dt^3*ep/16)*chiK*lenEdge*(square(kappa3)+square(dt))*square((g-u))+(dt^3*ep/16)*chiK*dt^2*lenEdge*square((-N.y*(dxg-dx(u))+N.x*(dyg-dy(u)))));
+         
+	
+
+
+// Adaptation loop
+int i=100;
+real[int]  H11b(i), h1(i),L21(i),H121(i),toterr(i),dfu(i),dfsig(i),dfsig1(i),totdf(i); 
+for (i = 10; i < 100; i=i+10) {
+   
+    mesh Th1=square(i,i);
+    //plot(Th1);
+    h1[i] =Th1.hmax;
+    fespace Vh2(Th1,P1);
+    Vh2 u1old,v1old;
+    solve Poisson1(u1old,v1old)=
+      int2d(Th1)(0.01*(dx(u1old)*dx(v1old)+dy(u1old)*dy(v1old)))
+      +int2d(Th1)((b1*dx(u1old)+b2*dy(u1old))*v1old) 
+      -int2d(Th1)(f*v1old)
+      +on(1,2,3,4,u1old=g);
+    fespace Vh3(Th1,P2);
+    Vh3 v1,u1,error1,error2;
+    Vh3 un1;
+    un1=u1old;
+    fespace Rh1(Th1,RT1);
+    Rh1 [sigma11,sigma21];
+    Rh1 [sigman11,sigman21];
+    Rh1 [tau11,tau21];
+    macro grad(u1) [dx(u1),dy(u1)]//
+    macro sigmah[sigma11,sigma21]//
+    macro sigmanh[sigman11,sigman21]//
+    macro tauh[tau11,tau21]//
+    macro divsi(sigmah)[dx(sigma11)+dy(sigma21)]//
+    macro divta(tauh)[dx(tau11)+dy(tau21)]//
+    solve ad1([sigma11,sigma21,u1],[tau11,tau21,v1])
+               =int2d(Th1)(dt*(sigmah'*tauh)/ep)
+               -int2d(Th1)(dt*u1*(dx(tau11)+dy(tau21)))
+               +int2d(Th1)(dt*v1*(dx(sigma11)+dy(sigma21)))
+               +int2d(Th1)((1+dt*c)*u1*v1)
+               -int2d(Th1)(convect([b1,b2],-dt,un1)*v1)
+               +int2d(Th1)(kappa1*dt*(sigmah'*grad(v1)/ep-(sigmah'*tauh)/ep^2+grad(u1)'*grad(v1)-tauh'*grad(u1)/ep))
+               +int2d(Th1)(kappa2*(dt*divsi(sigmah)'*divta(tauh)+dx(tau11)*(u1+u1*dt*c)+dy(tau21)*(u1+u1*dt*c)))
+               -int2d(Th1)(kappa2*(dx(tau11)*convect([b1,b2],-dt,un1)+dy(tau21)*convect([b1,b2],-dt,un1)))
+               +int1d(Th1)(kappa3*u1*v1) // when c=0
+               -int2d(Th1)(dt*f*v1)
+               +int1d(Th1)(dt*g*(N.x*tau11+N.y*tau21))
+               -int2d(Th1)(kappa2*f*dt*(dx(tau11)+dy(tau21)))
+               -int1d(Th1)(kappa3*g*v1); // when c=0
+    int n=20;
+    real[int] L2(n),H11(n),H1(n),err1(n);
+    sigmanh=sigmah;//initializing sigma^n-1 as sigma^1
+    
+    un1=u1;
+    for(n=1;n<20;n=n+1){
+       
+       ad1;
+       error1=u1-un1;// So, here u^n=u^2 from the second iteration and u^n-1=u^1
+       L2[n]=sqrt(int2d(Th1)(error1^2));
+       H1[n]=sqrt(int2d(Th1)((error1)^2)+int2d(Th1)((dx(u1)-dx(un1))^2)+int2d(Th1)((dy(u1)-dy(un1))^2));
+       H11[n]=sqrt(int2d(Th1)((sigman11-sigma11)^2)+int2d(Th1)((sigman21-sigma21)^2)+int2d(Th1)((dx(sigman11)-dx(sigma11)+dy(sigman21)-dy(sigma21))^2));
+       err1[n]=sqrt(H1[n]^2+H11[n]^2);
+       cout<<n<<"tot err for ith mesh ="<<err1[n]<<endl;
+       if (err1[n]<0.1)
+        {
+       break;
+       }
+       un1=u1; //Swapping values of u^n-1 with u^n
+       sigmanh=sigmah; //Swapping values of u^n-1 with u^n
+       
+       }
+    
+    error2=u-u1;// finding err 
+    L21[i]=sqrt(int2d(Th)(error2^2));
+    H11b[i]=sqrt(int2d(Th)((error2)^2)+int2d(Th)((dx(u)-dx(u1))^2)+int2d(Th)((dy(u)-dy(u1))^2));
+    H121[i]=sqrt(int2d(Th)((sigma1-sigma11)^2)+int2d(Th)((sigma2-sigma21)^2)+int2d(Th)((dx(sigma1)-dx(sigma11)-dy(sigma2)-dy(sigma21))^2));
+    //H121[i]=sqrt(int2d(Th)((-ep*dx(u)-sigma11)^2)+int2d(Th)((-ep*dy(u)-sigma21)^2)+int2d(Th)((-ep*dxx(u)-dx(sigma11)-ep*dyy(u)-dy(sigma21))^2));
+    toterr[i]=sqrt(H11b[i]^2+L21[i]^2);
+    dfu[i]=u1.n;
+    dfsig[i]=sigma11.n;
+    dfsig1[i]=sigma21.n;
+    totdf[i]=dfu[i]+2*dfsig[i];
+    
+    cout <<"i="<<i<<",L2 norm ="<<L21[i]<<endl;
+    cout <<"i="<<i<<",H1 norm="<<H11b[i]<<endl;
+    cout << "i="<<i<<",tot error="<<toterr[i]<<endl;
+    cout << "i="<<i<<",H1 div norm sigma="<<H121[i]<<endl;
+    cout << "i="<<i<<",Degrees of freedom u="<<dfu[i]<<endl;
+    cout << "i="<<i<<",Degrees of freedom sigma="<<dfsig[i]<<endl;
+    cout << "i="<<i<<",Degrees of freedom sigma="<<dfsig1[i]<<endl;
+    cout << "i="<<i<<",Degrees of freedom tot="<<totdf[i]<<endl;
+
+    
+
+	// Mesh adaptation
+	real cc=0.8;
+	if (i > 50) cc = 1;
+        {
+		ReMeshIndicator(Th, Ph, Vh, indicator2, cc,toterr[i]);
+		u=u1;
+                
+	}
+	
+	// Plot
+    plot(Th,wait=1);
+    plot(u1, wait=1, cmm="Final concentration", value=1, ps="Final concentration.eps");
+    
+    Vh1 gg=g;
+    plot(gg, wait=1, cmm="Exact concentration", value=1, ps="Exact concentration.eps");
+    
+    plot([sigma11,sigma21], wait=1, cmm="Final flux", value=1, ps="Final flux.eps");
+    
+    Vh1 dxgg = - ep * dx(gg), dygg = - ep * dy(gg);
+    plot([dxgg,dygg],wait=1, cmm="Exact flux", value=1, ps="Exact flux.eps");
+       
+     //int[int] Order = [1];
+     //string DataName = "Concentration";
+     //savevtk("u_sing.vtu", Th1, u1, dataname=DataName, order=Order);
+    int[int] Order = [2];
+    string DataName = "Flux Flux ";
+    savevtk("flux_sing.vtu", Th1, sigmah, [sigma11,sigma21], dataname="Flux Flux", order=Order);
+       
+       
+       
+       
+         
+}
+
+
+for(i=30;i<100;i=i+10){
+cout<< " L2 convergence rate = " <<   -2*(log(L21[i-10]/L21[i])/log(dfu[i-10]/dfu[i]))<< endl;
+}
+for(i=30;i<100;i=i+10){
+cout << " H1 convergence rate = " << -2*(log(H11b[i-10]/H11b[i])/log(dfu[i-10]/dfu[i])) << endl;
+}
+for(i=30;i<100;i=i+10){
+cout << " Total error= " << -2*(log(toterr[i-10]/toterr[i])/log(totdf[i-10]/totdf[i])) << endl;
+}
+for(i=30;i<100;i=i+10){
+cout << " H1  div convergence rate for sigma= " << -2*(log(H121[i-10]/H121[i])/log(dfsig[i-10]/dfsig[i])) << endl;
+}
+for(i=30;i<100;i=i+10){
+cout << " L2 error= " << L21[i] << endl;
+}
+for(i=30;i<100;i=i+10){
+cout << " H1  error = " << H11b[i]<< endl;
+}
+for(i=30;i<100;i=i+10){
+cout << " H1  div error= " << H121[i] << endl;
+}
+for(i=30;i<100;i=i+10){
+cout << " tot err= " << toterr[i] << endl;
+}
+for(i=30;i<100;i=i+10){
+cout << " dof u= " << dfu[i] << endl;
+}
+for(i=30;i<100;i=i+10){
+cout << " dof sigma= " << dfsig[i] << endl;
+}
+for(i=30;i<100;i=i+10){
+cout << " dof tot= " << totdf[i] << endl;
+}
+
